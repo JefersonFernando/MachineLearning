@@ -7,10 +7,18 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 import random
 
+#powers = [-0.001959296817599432, 0.40178398088632017, 0.720954829979833, 0.29619846710817765, 0.5467256132143437, 0.5097512318998636, -0.027161611960752063, 0.5594433590342884]   #Accuracy:0.6481481481481481
+
 columns = ['sex','length','diameter','height','whole_weight','shucked_weight','viscera_weight','shell_weight']
 
 data = pd.read_csv('abalone_dataset.csv')
 data_app = pd.read_csv('abalone_app.csv')
+
+class individual():
+    def __init__(self, chromosome, k):
+        self.ranking = float(-99999)
+        self.chromosome = chromosome
+        self.k = k
 
 def read():
     data = pd.read_csv('abalone_dataset.csv')
@@ -57,7 +65,16 @@ def normalize():
 
         scaled.clear()
 
-def test_acuracy():
+def potentialize():
+    for i in range(len(columns)):
+        for j in range(len(data.iloc[:, i])):
+            data.iloc[j, i] *= powers[i]
+    
+    for i in range(len(columns)):
+        for j in range(len(data_app.iloc[:, i])):
+            data_app.iloc[j, i] *= powers[i]
+
+def test_acuracy(k):
     sum = 0
     datacopy = data.copy()
 
@@ -70,7 +87,7 @@ def test_acuracy():
         test_data.pop('type')
         X = train_data[columns]
         Y = train_data.type
-        neigh = KNeighborsClassifier(n_neighbors=3)
+        neigh = KNeighborsClassifier(n_neighbors=k)
         neigh.fit(X, Y)
         y_pred = neigh.predict(test_data)
         size = len(y_pred)
@@ -81,46 +98,107 @@ def test_acuracy():
     
     return (sum/(len(y_pred)*4))
 
-def check_powers():
+def submit():
     global data
-    arquivo = open("powers.txt", "a")
-    powers = [-1, -1, -1, -1, -1, -1, -0.9, -0.1]
-    maximum = [ 1, 1, 1, 1, 1, 1, 1, 1]
+    global data_app
+    X = data[columns]
+    Y = data.type
+    neigh = KNeighborsClassifier(n_neighbors=15)
+    neigh.fit(X, Y)
+    y_pred = neigh.predict(data_app)
+    URL = "https://aydanomachado.com/mlclass/03_Validation.php"
 
-    data_backup = data.copy()
+    #TODO Substituir pela sua chave aqui
+    DEV_KEY = "Flash 2.0"
 
-    while(powers != maximum):
-        data = data_backup.copy()
+    # json para ser enviado para o servidor
+    data = {'dev_key':DEV_KEY,
+            'predictions':pd.Series(y_pred).to_json(orient='values')}
+
+    # Enviando requisição e salvando o objeto resposta
+    r = requests.post(url = URL, data = data)
+
+    # Extraindo e imprimindo o texto da resposta
+    pastebin_url = r.text
+    print(" - Resposta do servidor:\n", r.text, "\n")
+
+def init_population(individuals):
+    population = []
+
+    for i in range(individuals):
+        chromosome = []
         for j in range(len(columns)):
-            for i in range(len(data.iloc[:, j])):
-                data.iloc[i, j] *= powers[j]
+            chromosome.append(random.uniform(-1.0, 1.0))
+        k = random.randint(3, 30)
+        population.append(individual(chromosome, k))
+    
+    return population
 
-        accuracy = test_acuracy()
-        arquivo.write("powers: " + str(powers) + "accuracy: " + str(accuracy)+ "\n")
+def evaluate(population):
+    global data
+    arquivo = open("powers2.txt", "a")
+    for individual in population:
+        if(individual.ranking < 0):
+            datacopy = data.copy()
+            powers = individual.chromosome
+            for i in range(len(columns)):
+                for j in range(len(data.iloc[:, i])):
+                    data.iloc[j, i] *= powers[i]
+            individual.ranking = test_acuracy(individual.k)
+            del(data)
+            data = datacopy
+            arquivo.write("powers:" + str(powers) + "K:" + str(individual.k) + "   Accuracy:" + str(individual.ranking) + "\n")
+            print("powers:" + str(powers) + "K:" + str(individual.k) + "    Accuracy:" + str(individual.ranking) + "\n")
+    arquivo.close
+    population.sort(key = lambda ind: ind.ranking)
+    
+def crossover(population):
+    new_population = []
+    chromosome=[]
+    index = []
+    for i in range(int(len(population)/2), len(population)):
+        new_population.append(population[i])
 
-        print(powers)
-        print(accuracy)
-
-        powers[len(powers) - 1] += 0.1
-
-        for i in range((len(powers) - 1), -1, -1):
-            if(powers[i] > 1):
-                if(i-1 >= 0):
-                    powers[i-1] += 0.1
-                    powers[i] = -1
-                else:
-                    powers = maximum
-            else: 
-                break
-    arquivo.close()
-
-
+    for i in range(int(len(population)/2)):
+        index.append(random.randint(0, int(len(population)/2)))
+        index.append(random.randint(int(len(population)/2) + 1, len(population) - 1))
+        del(chromosome)
+        chromosome = []
+        for j in range(len(columns)):
+            ind = population[index[random.randint(0,1)]]
+            chromosome.append(ind.chromosome[j])
+        k = ind.k
         
+        new_population.append(individual(chromosome, k))
+    del(population)
+    return new_population
+
+def mutation(population):
+    for i in range(10):
+        individual = population[random.randint(0,len(population) - 3)]
+        chromosome = individual.chromosome
+        for j in range(len(chromosome)):
+            chromosome[j] *=  random.uniform(0.8, 1.2)
+        individual.chromosome = chromosome
+
+
+def genetic():
+    population = init_population(100)
+    for k in range(200):
+        print("----- NOVA GERAÇÃO -----")
+        evaluate(population)
+        arquivo = open("powers2.txt", "a")
+        arquivo.write("BEST:  " + str(population[-1].chromosome) + "K:" + str(population[-1].k) + "    Accuracy:" + str(population[-1].ranking) + "\n")
+        arquivo.close()
+        print("BEST:  " + str(population[-1].chromosome) + "K:" + str(population[-1].k) + "    Accuracy:" + str(population[-1].ranking) + "\n")
+        population = crossover(population)
+        mutation(population)
 
 def main():
     convert_sex()
     normalize()
-    check_powers()
+    #potentialize()
+    #submit()
+    genetic()
+
 main()
-
-
